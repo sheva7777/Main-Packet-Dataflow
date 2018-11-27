@@ -1,0 +1,73 @@
+Block Name Description
+NNI 网络-网络接口（Network-Network Interface）。这个接口为1 个SerDes 接
+口，内部集成多个PON MAC 和1 个GE MAC，可以和10G xPON、xPON、
+GE 的光收发器连接。
+UNI 用户网络接口（User Network Interface）。支持4 个GE，和1 个RGMII 接
+口。
+IPS 入端口调度（Ingress Port Scheduler）。入口端口的汇聚和调度。
+PQM 报文队列管理（Packet Queue Manager）。进行入口队列管理和调度，给PSA
+提供报文头和数据；对于PSA处理完的报文，从PLB读出送给PE编辑。
+HA 硬件加速器（Hardware Accelerator），分析报文头，匹配入队优先级，并生
+成报文描述信息。
+MEMP 存储池（Memory Pool）。报文处理延时缓存和片内缓存共享的存储器，此共
+享存储池大小约8Mbit。
+FAM
+空闲地址管理器（Free Address Manager）。 分配和回收数据通路中所有报文使用的缓存地址。并进行组播ID和权重管理。
+PE
+报文编辑器（Packet Editor）。 此模块根据PSA产生的报文编辑命令和编辑数据，接收经过PQM读取的原始报文，进行报文编辑。
+EQM
+出口队列管理（Egress Queue Manager）。进行出口队列的管理和调度。
+EPS
+出口端口调度器（Egress Port Scheduler）。负责读取要发送的报文数据并分发给指定的接口模块。
+AP
+执行处理器（Action Processor）。进行报文的分析和处理。
+EP
+编辑处理器（Edit Processor）。根据AP处理结果，产生报文编辑命令和报文编辑数据。
+FP
+Fine-Grain Processor。专职用于“控制处理”任务，如OAM、时戳处理等。仅仅由一个RAE构成。
+OE
+排序器（Order Enforcer）。 此模块学习每个端口报文的接收顺序，确保报文的发送顺序和接收顺序一致。同时此模块能确保一些访问协处理器命令按照顺序执行。
+COP
+协处理器（Co-Processor）。用于访问TCAM、内部通用memory以及外部通用memory。同时支持EM（Exact Match）和LPM（Longest Prefix Match）算法。
+PIE
+报文插入和提取（Packet Insert and Extract）。 给CPU提供向数据通路插入报文或从数据通路提取报文的方法。
+WOE
+Wifi Offloading Engine，此模块完成Wifi Offloading线路特性相关功能，如reorder、队列管理等。
+ECS
+嵌入CPU子系统（Embedded CPU Sub-system）。
+ICSS
+内部控制处理器子系统（Internal Control processor Sub-System）.。此模块让控制平面访问芯片内 的控制和状态空间。
+
+为描述方便，将接口模块以外的模块划分到3 个子系统中：
+1）数据通道子系统（Datapath Sub-System）: 主要完成帧数据的缓存、队列管理和QoS 调度功能。 属于数据通道子系统的主要模块有IPS、PQM、MEMP、FAM、PE、EQM、EPS 等模块。
+2）业务处理子系统：主要由可编程查找执行模块（Programmable Search-Action）、HA模块构成，来完成报文协议分析、转发处理等功能。
+3）内嵌控制平面子系统（Embedded Control Plane Sub-System）：提供内置控制CPU 和整个芯片的配置和寄存器访问。控制平面子系统包括ECS、ICSS 等模块。
+MEMP 的片内作为报文缓存的资源分成两大部分：报文处理延迟缓冲区（PLB）和内部帧缓冲区（IFB）。信元大小统一为160B，Head 信元的报文头数据为128B，FD 信息为32B。
+
+业务数据在芯片中的处理过程如下：
+1. 系统所有入口数据由IPS汇聚：IPS先向FAM申请缓存，对所有输入接口进行调度，按照调度结果，将报文存入PLB（MEMP）。当一个完整报文存入后，将报文头读出，发送给HA模块。
+2. HA对报文头数据进行解析，生成PSA处理需要的帧描述信息（FD），并根据报文特征匹配出入口队列优先级，然后将帧描述信息、入队优先级和报文指针发送给PQM模块。
+3. PQM首先将帧描述信息存入PLB（MEMP），然后根据报文入队优先级，将报文（指针）入队和调度，在系统出现反压的时候，优先级低的队列首先进行丢包（并释放MEMP缓存）。当PSA有空闲线程，PQM调度输出，将相应的报文Head再次读出，输送给PSA处理。PQM支持pull More指令读取Head外的更多数据。
+PQM还负责管理PAC_ID资源，当新报文Head发给PSA时，会申请并携带PAC_ID；当PE读走单播或者组播最后一份报文时，则释放PAC_ID 资源。
+4. 在Quark的AE模块进行报文的各种分析和处理。
+5. 当AE完成完成一个报文的处理后，发送Transmit*命令给OE，进行保序处理，当从“保序队列”输出时：
+a. 指示PQM把报文读出，准备给PE编辑。
+b. 同时指示EE读取报文context信息。
+c. 在Context信息全部读出后，通知AE释放线程。
+6. EE模块根据报文context信息生成编辑命令（EC）和编辑数据（ED），发送给PE。
+7. 在PQM将报文送给PE之后，释放Head和Body的缓存。
+8. PE模块接收并缓存从PSA送过来的EC和ED，对PQM送过来的报文数据，进行相应的报文编辑（并计算checksum）。PE还负责完成编辑后的报文头及报文身体的搬运和链接，所有报文首先搬运到内置缓存（MEMP）。然后将报文描述符送给EQM。
+9. EQM首先进行入队判决，成功入队的报文存入“端口组队列”（按照出端口为NNI、UNI、PIE/PRBS分为3个队列），进行调度，将调度出的报文搬运到外置缓存（DDR）或者继续存储在内置缓存中，然后将报文描述符送给“出端口队列”，进行出口QoS管理。
+10. EPS模块从内置或者外置缓存读取数据，完成出口数据分发，以及地址释放。
+
+
+
+EQM模块内部维护一个MCID相应深度的组播Body地址表，用来存放EFB Body地址，同时这个表项有1bit标志位，用于标识这个MCID的Body地址是否已经记录过， MCID释放时，FAM通知将这个bit清0。完成通道组队列调度后，如果报文需要存放到EFB，且报文是组播报文，则释放1份MCID_IFB权重，增加1份MCID_EFB权重（MCID_EFB的初始值为0）；另外，判断这个报文的Body地址是否已经记录过，如果未记录过，将这个报文整包存放在EFB，并记录Body地址；如果这个报文的Body地址已经记录过，则仅把这个报文的Head存放到EFB，并用已经存放的Body地址建链。
+9. EPS读取报文后，如果是组播报文，则进行权重释放（根据报文存储位置，确定MCID_IFB还是MCID_EFB）。
+
+
+EQM 模块对IFB 的操作，一读。
+一读：EQM 对出口Buffer 组调度，分析报文存储目的地，如果为EFB，则从IFB 读出。
+
+EPS 模块对IFB 的操作，一读。
+一读：读取整包报文数据，分发给目的接口。
