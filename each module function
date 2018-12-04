@@ -1,0 +1,48 @@
+IPS_PON
+IPS_PON模块作为PON MAC下行跟IPS模块的接口模块，根据NNI_MODE配置，完成各路PON MAC接口的下行数据汇聚，送给IPS模块。
+
+INGRESS PORT SCHEDULE（IPS）
+系统所有入口流量由IPS模块汇聚，IPS先向FAM申请缓存，然后对所有输入接口进行调度，按照调度结果，将报文存入内部缓存PLB（MEMP）。当一个完整报文存入后，将报文头Head Block读出，存到内部Head缓存中，由HA模块将数据读走。
+
+HARDWARE ACCELERATOR (HA)
+Hardware Accelerator(HA)是一个报文解析引擎，是上下行报文进入PSA子系统前的优先级选择处理器。HA包含PA和FC两个子模块，PA对输入报文进行识别和域提取，FC对输入报文提供基本流分类和优先级处理，流分类结果作为报文携带信息输出给PQM。
+
+PACKET QUEUE MANAGER (PQM)
+PQM接收HA新报文信息，将HA解析出的报文信息写入MEMP 中报文FD位置并根据HA送来的报文优先级入PQM内部4个队列。PQM进行入口队列资源管理，在系统出现拥塞的时候，对报文进行有策略丢弃。PQM统计PSA的空闲线程，当PSA有空闲的线程时PQM把新的报文头送给PSA处理。响应PSA Pull命令，从MEMP读出报文送往PSA。 PQM响应PSA的TransmitDispatch命令，发送帧数据到PE进行编辑，可以根据TransmitDispatch命令发送整帧、帧头到PE。
+
+FREE ADDRESS MANAGER(FAM)
+Free Address Manager(FAM)负责管理空闲缓存、帧内链表、组播ID和组播权重。
+
+MEMORY POOL(MEMP)
+Memory Pool（MEMP）是芯片内置的用于缓存报文的空间。数据通道中的多个处理环节分别需要大容量的内置Memory来临时存储报文数据，我们将这些Memory集中放置在MEMP模块，实现资源共享，通过灵活配置，应付各种应用场景。
+MEMP在逻辑上分为PLB、PEB和IFB三部分缓存空间，其中PLB用于缓存入端口报文（PE前）；PEB用于缓存PE编辑之后、进出口队列之前的报文；IFB用于缓存 出端口队列报文（存于片内的部分）。
+
+PACKET EDITOR (PE)
+PE 模块从Quark 接收EC（Edit Command）和ED（Edit Data），存储到内部的Buffer 中。
+PE 从PQM 接收原始报文数据，根据编辑命令（EC）对报文进行编辑。在申请到FAM
+（Free Address Manager）的缓存地址之后，将编辑完成的报文数据写入内部缓存IFB
+（Internal Frame Buffer）中，最后将报文的FCB（Frame Control Block）送给EQM
+（Egress Queue Manager）模块处理。
+
+EGRESS QUEUE MANAGER(EQM )
+Egress Queue Management（EQM）模块接收PE送过来的包信息，控制报文数据的存储，基于输出队列进行缓存管理和调度，完成PON口的入队DBA信息发送给EPS_PON。
+
+EGRESS PORT SCHEDULER (EPS)
+出端口调度提供外接各端口的数据输出调度功能，其中xPON端口基于tcont/llid完成调度，其他端口基于物理端口进行调度。
+
+EPS_PON
+EPS_PON接收EPS送过来的上行数据，经过异步转换和接口适配根据10G GPON/GPON/10G EPON/EPON模式把数据发给NGMAC/GMAC/XGEMAC，并进行dbru/report的带宽计算。
+
+PSEUDO-RANDOM BINARY SEQUENCE (PRBS)
+PRBS主要用于装备测试、单向吞吐量测试和双向吞吐量测试。支持RFC2544报文收发。
+主要特性如下：
+ PRBS模块根据软件配置选择多包连续校验或单包内部校验模式；
+ 根据软件配置将PRBS数据流封装成以太报文传给IPS模块；
+ 接收EPS模块数据，剥离ETH头；
+ 对接收到的PRBS的数据进行校验，统计错误bit数；
+ 统计发包数与收包数；
+ 外环回功能，将EPS送过来的数据流经由FIFO传送给IPS；
+ 支持RFC2544吞吐量和丢包率测量报文的发送和接收；
+
+PACKET INSERT AND EXTRACT (PIE)
+Packet Insert and Extract （PIE）主要完成CPU接收（提取）包或者发送（插入）包的功能。CPU可以通过PIE向/从各个业务端口发送/接收包。
